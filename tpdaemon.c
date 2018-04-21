@@ -1,4 +1,5 @@
 #include "ethernet.h"
+#include "miptp.h"
 #include "tpdaemon.h"
 
 #include <arpa/inet.h>
@@ -19,6 +20,16 @@
  * Log of the window we have sent but has not been acked.
  */
 struct miptp_record packetLog[10];
+
+/**
+ * Queue of packets to send.
+ */
+struct packet_linkedlist * sendingQueue;
+
+/**
+ * List of incoming packets not yet sent to application.
+ */
+struct packet_linkedlist * receivedQueue;
 
 
 /**
@@ -144,6 +155,8 @@ int main(int argc, char *argv[])
             // Handle event.
             epoll_event(&epctrl, n);
         }
+
+        // Handle timeouts.
 
         printf("Loop done.\n");
     }

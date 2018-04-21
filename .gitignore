@@ -1,4 +1,4 @@
-bin/ping_client
-bin/ping_server
-bin/routing_server
+bin/trans_client
+bin/trans_server
+bin/trans_daemon
 *.pdf
