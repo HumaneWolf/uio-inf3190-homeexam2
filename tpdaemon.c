@@ -19,17 +19,22 @@
 /**
  * Log of the window we have sent but has not been acked.
  */
-struct miptp_record packetLog[10];
+struct miptp_record packetLog[10] = { 0 };
 
 /**
  * Queue of packets to send.
  */
-struct packet_linkedlist * sendingQueue;
+struct packet_linkedlist * sendingQueue = 0;
 
 /**
  * List of incoming packets not yet sent to application.
  */
-struct packet_linkedlist * receivedQueue;
+struct packet_linkedlist * receivedQueue = 0;
+
+/**
+ * List of connected applications and their ports.
+ */
+struct application_linkedlist * applicationList = 0;
 
 
 /**
@@ -59,13 +64,38 @@ void epoll_add(struct epoll_control *epctrl, int fd)
  */
 void epoll_event(struct epoll_control *epctrl, int n)
 {
+        // Accept a new connection.
+    if (epctrl->events[n].data.fd == epctrl->application_fd) {
+        // Accept connection.
+        int sock = accept(epctrl->application_fd, &(epctrl->application_sockaddr), sizeof(epctrl->application_sockaddr));
+        if (sock == -1) {
+            perror("epoll_event: accept()");
+            exit(EXIT_FAILURE);
+        }
+
+        // Add to epoll.
+        epoll_add(epctrl, sock);
+
+        // Store a ref in our list.
+        struct application_linkedlist * app = malloc(sizeof(struct application_linkedlist));
+        app->next = applicationList;
+        app->socket = sock;
+
+        // Get port.
+        recv(app->socket, &(app->port), 2, 0); // The first 2 bytes sent by the connecting app should be the port.
+    }
         // Received data from daemon
-    if (epctrl->events[n].data.fd == epctrl->daemon_fd)
+    else if (epctrl->events[n].data.fd == epctrl->daemon_fd)
     {
         
     }
-        // Received data from application.
+        // Received new application.
     else if (epctrl->events[n].data.fd == epctrl->application_fd)
+    {
+
+    }
+        // Received data from application.
+    else
     {
 
     }
@@ -74,8 +104,6 @@ void epoll_event(struct epoll_control *epctrl, int n)
 
 /**
  * Main method.
- * Global vars:
- *      targets - Main can read the targets global variable, when sending route data information.
  */
 int main(int argc, char *argv[])
 {
@@ -90,7 +118,7 @@ int main(int argc, char *argv[])
     char *daemon_sock_path = argv[1];
     char *app_sock_path = argv[2];
 
-    // Create the routing socket.
+    // Create the daemon socket.
     int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if (sock == -1) {
         perror("main: socket()");
@@ -106,11 +134,11 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    // Create epctrl control struct
+    // Create epctrl struct
     struct epoll_control epctrl;
     epctrl.daemon_fd = sock;
 
-    // Create the forwarding socket.
+    // Create the application socket.
     sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if (sock == -1) {
         perror("main: socket()");
@@ -127,6 +155,7 @@ int main(int argc, char *argv[])
 
     // Create EPOLL.
     epctrl.application_fd = sock;
+    memcpy(&(epctrl.application_sockaddr), &sockaddr, sizeof(sockaddr));
     
     epctrl.epoll_fd = epoll_create(10);
 
@@ -164,6 +193,13 @@ int main(int argc, char *argv[])
     // Close unix socket.
     close(epctrl.daemon_fd);
     close(epctrl.application_fd);
+
+    struct application_linkedlist * appTemp, * appTemp2;
+    while (appTemp) { // Will be a pointer to 0 if undefined.
+        close(appTemp->socket);
+        appTemp2 = appTemp;
+        free(appTemp);
+    }
 
     return EXIT_SUCCESS;
 }
