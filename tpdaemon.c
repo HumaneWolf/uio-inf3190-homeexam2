@@ -119,18 +119,28 @@ void epoll_event(struct epoll_control *epctrl, int n)
         unsigned short seqNum = getSeqNum(buffer);
 
         // Handle ack.
-        // TODO: Handle order.
         if (length == 4)
         {
             int i;
             for (i = 0; i < WINDOW_SIZE; i++)
             {
+                // If this packet is acked.
                 if (packetLog[i].exists && packetLog[i].port == port && packetLog[i].seqnum <= seqNum)
                 {
                     packetLog[i].exists = 0;
                     free(packetLog[i].data);
+
+                    if (i < (WINDOW_SIZE - 1)) // If not the last (newest) element in the log.
+                    {
+                        // Move the queue one.
+                        memcpy(&(packetLog[i]), &(packetLog[i + 1]), ((WINDOW_SIZE - i - 1) * sizeof(struct miptp_record)));
+                        packetLog[WINDOW_SIZE - 1].exists = 0; // Mark last one as not in use, in case it was used.
+                        i--; // Count the same number again.
+                    }
                 }
             }
+
+            debug_print("Handled ack for %u on port %u.\n", seqNum, port);
 
             return; // Don't do any more if it's an ack.
         }
