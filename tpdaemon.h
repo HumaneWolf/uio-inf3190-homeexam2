@@ -40,6 +40,16 @@ struct miptp_record
 
 
 /**
+ * A linked list struct used to store packets in a list.
+ */
+struct packet_linkedlist
+{
+    struct packet_linkedlist * next;        // Next element in the list.
+    struct miptp_record data;               // The miptp_record struct.
+};
+
+
+/**
  * A linked list struct to store a list of applications and their ports.
  */
 struct application_linkedlist

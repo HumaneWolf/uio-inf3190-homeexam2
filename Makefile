@@ -1,9 +1,9 @@
 CC = gcc
 FLAGS = -Wall -Werror -std=gnu11
 
-TRANSPORTFILES = tpdaemon.c miptp.c
-CLIENTFILES = transclient.c
+TRANSPORTFILES = tpdaemon.c miptp.c debug.c
 SERVERFILES = transserver.c
+CLIENTFILES = transclient.c
 
 CLEANFILES = bin/transportdaemon bin/trans_server bin/trans_client
 

@@ -165,6 +165,7 @@ void epoll_event(struct epoll_control *epctrl, int n)
         debug_print("Payload received on port %u and sent to application.\n", port);
 
         // Send ack
+        // TODO: Send after a delay, to ack multiple packets at once.
         unsigned char outBuffer[4];
         buildHeader(0, port, (seqNum + 1), outBuffer);
         if (send(epctrl->events[n].data.fd, outBuffer, 4, 0)) {
@@ -202,8 +203,8 @@ int main(int argc, char *argv[])
 
     // Variables
     int timeout = atoi(argv[argBase]);
-    char *daemon_sock_path = argv[argBase + 1];
-    char *app_sock_path = argv[argBase + 2];
+    char * daemon_sock_path = argv[argBase + 1];
+    char * app_sock_path = argv[argBase + 2];
 
     // Create the daemon socket.
     int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
@@ -272,7 +273,17 @@ int main(int argc, char *argv[])
             epoll_event(&epctrl, n);
         }
 
-        // Handle timeouts and regular tasks.
+        // Handle timeouts and resends.
+        int i;
+        for (i = 0; i < WINDOW_SIZE; i++)
+        {
+            if (packetLog[i].exists && packetLog[i].last_sent < (time(NULL) - timeout))
+            {
+                if (send(epctrl.daemon_fd, packetLog[i].data, packetLog[i].length, 0) == -1) {
+                    perror("main: send(resend)");
+                }
+            }
+        }
 
         debug_print("Serve loop done.\n");
     }
