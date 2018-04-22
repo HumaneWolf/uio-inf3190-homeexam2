@@ -229,7 +229,7 @@ int main(int argc, char *argv[])
     strcpy(sockaddr.sun_path, daemon_sock_path);
 
     if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) == -1) {
-        perror("main: connect(r)");
+        perror("main: connect()");
         exit(EXIT_FAILURE);
     }
 
@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
     strcpy(sockaddr.sun_path, app_sock_path);
 
     if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) == -1) {
-        perror("main: connect(f)");
+        perror("main: connect()");
         exit(EXIT_FAILURE);
     }
 
