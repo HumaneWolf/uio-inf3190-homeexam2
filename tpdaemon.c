@@ -1,3 +1,4 @@
+#include "debug.h"
 #include "ethernet.h"
 #include "miptp.h"
 #include "tpdaemon.h"
@@ -19,22 +20,22 @@
 /**
  * Log of the window we have sent but has not been acked.
  */
-struct miptp_record packetLog[10] = { 0 };
-
-/**
- * Queue of packets to send.
- */
-struct packet_linkedlist * sendingQueue = 0;
-
-/**
- * List of incoming packets not yet sent to application.
- */
-struct packet_linkedlist * receivedQueue = 0;
+struct miptp_record packetLog[WINDOW_SIZE] = { 0 };
 
 /**
  * List of connected applications and their ports.
  */
 struct application_linkedlist * applicationList = 0;
+
+/**
+ * List of incoming sequence numbers per port.
+ */
+unsigned short int inSeqNums[65535];
+
+/**
+ * List of outgoing sequence numbers per port.
+ */
+unsigned short int outSeqNums[65535];
 
 
 /**
@@ -67,7 +68,7 @@ void epoll_event(struct epoll_control *epctrl, int n)
         // Accept a new connection.
     if (epctrl->events[n].data.fd == epctrl->application_fd) {
         // Accept connection.
-        int sock = accept(epctrl->application_fd, &(epctrl->application_sockaddr), sizeof(epctrl->application_sockaddr));
+        int sock = accept(epctrl->application_fd, &(epctrl->application_sockaddr), &(epctrl->application_sockaddrlen));
         if (sock == -1) {
             perror("epoll_event: accept()");
             exit(EXIT_FAILURE);
@@ -82,22 +83,100 @@ void epoll_event(struct epoll_control *epctrl, int n)
         app->socket = sock;
 
         // Get port.
-        recv(app->socket, &(app->port), 2, 0); // The first 2 bytes sent by the connecting app should be the port.
+        // The first 2 bytes immidately sent by the connecting app should be the port.
+        // Only needed if server should accept incoming connections, otherwise app should send 0.
+        if (recv(app->socket, &(app->port), 2, 0) == -1) {
+            perror("epoll_event: recv(port)");
+            return;
+        }
+        
+        if (app->port)
+        {
+            debug_print("New application connected, listening on port %u.\n", app->port);
+        } else {
+            debug_print("New application connected.\n");
+        }
     }
         // Received data from daemon
     else if (epctrl->events[n].data.fd == epctrl->daemon_fd)
     {
-        
-    }
-        // Received new application.
-    else if (epctrl->events[n].data.fd == epctrl->application_fd)
-    {
+        unsigned char buffer[1496];
+        unsigned char from;
+        if (recv(epctrl->events[n].data.fd, &from, 1, 0) == -1) {
+            perror("epoll_event: recv(daemon, from)");
+            return;
+        }
 
+        int length = recv(epctrl->events[n].data.fd, &buffer, sizeof(buffer), 0);
+        if (length == -1) {
+            perror("epoll_event: recv(daemon)");
+            return;
+        }
+
+        // Variables
+        unsigned char padding = getPadding(buffer);
+        unsigned short int port = getPort(buffer);
+        unsigned short seqNum = getSeqNum(buffer);
+
+        // Handle ack.
+        if (length == 4)
+        {
+            int i;
+            for (i = 0; i < WINDOW_SIZE; i++)
+            {
+                if (packetLog[i].exists && packetLog[i].port == port && packetLog[i].seqnum <= seqNum)
+                {
+                    packetLog[i].exists = 0;
+                    free(packetLog[i].data);
+                }
+            }
+
+            return; // Don't do any more if it's an ack.
+        }
+
+        // Check if sequence number fits.
+        // TODO: Change sequence numbers to loop around.
+        if (seqNum == (inSeqNums[port] + 1))
+        {
+            inSeqNums[port]++;
+        } else {
+            debug_print(
+                "Packet received on port %u, but seqnum mismatch: expected %u, got %u.\n",
+                port, inSeqNums[port], seqNum
+            );
+            return;
+        }
+
+        struct application_linkedlist * appTemp = applicationList;
+        while (appTemp) {
+            if (appTemp->port != 0 && port == appTemp->port)
+            {
+                break; // Found the right app.
+            }
+
+            appTemp = appTemp->next;
+        }
+
+        // Send the payload to the application.
+        if (send(appTemp->socket, &(buffer[4]), (length - 4 - padding), 0) == -1) {
+            perror("epoll_event: send(to app)");
+        }
+
+        debug_print("Payload received on port %u and sent to application.\n", port);
+
+        // Send ack
+        unsigned char outBuffer[4];
+        buildHeader(0, port, (seqNum + 1), outBuffer);
+        if (send(epctrl->events[n].data.fd, outBuffer, 4, 0)) {
+            perror("epoll_event: send(ack)");
+            return;
+        }
+        debug_print("Ack returned.\n");
     }
-        // Received data from application.
+        // Received data from an application.
     else
     {
-
+        
     }
 }
 
@@ -108,15 +187,23 @@ void epoll_event(struct epoll_control *epctrl, int n)
 int main(int argc, char *argv[])
 {
     // Args count check
-    if (argc <= 2)
+    if (argc <= 3)
     {
-        printf("Syntax: %s <daemon socket> <application socket>\n", argv[0]);
+        printf("Syntax: %s [-d] <timeout in seconds> <daemon socket> <application socket>\n", argv[0]);
         return EXIT_SUCCESS;
     }
 
+    int argBase = 1;
+    if (!strcmp(argv[1], "-d"))
+    {
+        argBase++;
+        enable_debug_print();
+    }
+
     // Variables
-    char *daemon_sock_path = argv[1];
-    char *app_sock_path = argv[2];
+    int timeout = atoi(argv[argBase]);
+    char *daemon_sock_path = argv[argBase + 1];
+    char *app_sock_path = argv[argBase + 2];
 
     // Create the daemon socket.
     int sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
@@ -185,9 +272,9 @@ int main(int argc, char *argv[])
             epoll_event(&epctrl, n);
         }
 
-        // Handle timeouts.
+        // Handle timeouts and regular tasks.
 
-        printf("Loop done.\n");
+        debug_print("Serve loop done.\n");
     }
 
     // Close unix socket.
@@ -195,10 +282,12 @@ int main(int argc, char *argv[])
     close(epctrl.application_fd);
 
     struct application_linkedlist * appTemp, * appTemp2;
-    while (appTemp) { // Will be a pointer to 0 if undefined.
+    while (appTemp) // Will be a pointer to 0 if undefined.
+    {
         close(appTemp->socket);
         appTemp2 = appTemp;
         free(appTemp);
+        appTemp = appTemp2->next;
     }
 
     return EXIT_SUCCESS;

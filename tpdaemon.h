@@ -6,6 +6,9 @@
 #include <sys/socket.h>
 
 
+#define WINDOW_SIZE 10
+
+
 #define MAX_EVENTS 20
 /**
  * EPOLL control structure.
@@ -16,18 +19,9 @@ struct epoll_control
     int daemon_fd;                          // The file descriptor for the socket used to communicate with the mip daemon.
     int application_fd;                     // The file descriptor for the soocket used to communicate with applications.
     struct sockaddr application_sockaddr;   // Sockaddr for application.
+    socklen_t application_sockaddrlen;      // Length of sockaddr struct.
     struct epoll_event events[MAX_EVENTS];
 };
-
-
-/**
- * MIPTP header
- */
-struct miptp_header
-{
-    unsigned short int port;                // Port part of header First 2 bits are padding length.
-    unsigned short int seqnum;              // Sequence number part of header.
-} __attribute__((packed));
 
 
 /**
@@ -35,23 +29,13 @@ struct miptp_header
  */
 struct miptp_record
 {
-    char awaiting_ack;                      // Whether it is waiting to be acked (just for reference marking if the slot is available or not).
+    char exists;                            // Just a marker to make if checks quicker.
     unsigned short int port;                // Port number to send to/from.
-    unsigned char target;                   // The intended recipient of the data.
+    unsigned char addr;                     // The intended recipient or sender of the data.
     unsigned short int seqnum;              // The sequence number of the packet.
     unsigned int length;                    // Length of the packet data, in bytes.
-    char * full_packet;                     // Pointer to the full packet data, ready to send.
+    char * data;                            // Pointer to the full packet data, ready to send OR to data to send to client.
     time_t last_sent;                       // The time the packet was sent.
-};
-
-
-/**
- * A linked list struct used to store packets with an unknown length list (i.e. sending queue).
- */
-struct packet_linkedlist
-{
-    struct packet_linkedlist * next;        // Next element in the list.
-    struct miptp_record data;               // The miptp_record struct.
 };
 
 

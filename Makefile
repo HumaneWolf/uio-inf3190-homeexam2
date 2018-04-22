@@ -7,7 +7,7 @@ SERVERFILES = transserver.c
 
 CLEANFILES = bin/transportdaemon bin/trans_server bin/trans_client
 
-all: client server transportdaemon
+all: transportdaemon client server
 
 transportdaemon: $(TRANSPORTFILES)
 	$(CC) $(FLAGS) $(TRANSPORTFILES) -o bin/trans_daemon
