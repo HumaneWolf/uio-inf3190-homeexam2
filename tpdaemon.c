@@ -119,6 +119,7 @@ void epoll_event(struct epoll_control *epctrl, int n)
         unsigned short seqNum = getSeqNum(buffer);
 
         // Handle ack.
+        // TODO: Handle order.
         if (length == 4)
         {
             int i;
@@ -282,6 +283,7 @@ int main(int argc, char *argv[])
                 if (send(epctrl.daemon_fd, packetLog[i].data, packetLog[i].length, 0) == -1) {
                     perror("main: send(resend)");
                 }
+                usleep(100);
             }
         }
 
