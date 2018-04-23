@@ -23,6 +23,11 @@
 struct miptp_record packetLog[WINDOW_SIZE] = { 0 };
 
 /**
+ * List of packets we need to send, but have not sent due to window size.
+ */
+struct packet_linkedlist * sendingQueue = 0;
+
+/**
  * List of connected applications and their ports.
  */
 struct application_linkedlist * applicationList = 0;
@@ -30,12 +35,12 @@ struct application_linkedlist * applicationList = 0;
 /**
  * List of incoming sequence numbers per port.
  */
-unsigned short int inSeqNums[65535];
+unsigned short int inSeqNums[65535] = { 0 };
 
 /**
  * List of outgoing sequence numbers per port.
  */
-unsigned short int outSeqNums[65535];
+unsigned short int outSeqNums[65535] = { 0 };
 
 
 /**
@@ -84,7 +89,6 @@ void epoll_event(struct epoll_control *epctrl, int n)
 
         // Get port.
         // The first 2 bytes immidately sent by the connecting app should be the port.
-        // Only needed if server should accept incoming connections, otherwise app should send 0.
         if (recv(app->socket, &(app->port), 2, 0) == -1) {
             perror("epoll_event: recv(port)");
             return;
@@ -102,6 +106,7 @@ void epoll_event(struct epoll_control *epctrl, int n)
     {
         unsigned char buffer[1496];
         unsigned char from;
+
         if (recv(epctrl->events[n].data.fd, &from, 1, 0) == -1) {
             perror("epoll_event: recv(daemon, from)");
             return;
@@ -188,7 +193,18 @@ void epoll_event(struct epoll_control *epctrl, int n)
         // Received data from an application.
     else
     {
-        
+        // Find the sending application.
+        struct application_linkedlist * app = applicationList;
+        while (app)
+        {
+            if (app->socket == epctrl->events[n].data.fd)
+            {
+                break;
+            }
+            app = app->next;
+        }
+
+        // TODO: Create packets and add them to queue.
     }
 }
 
@@ -293,9 +309,12 @@ int main(int argc, char *argv[])
                 if (send(epctrl.daemon_fd, packetLog[i].data, packetLog[i].length, 0) == -1) {
                     perror("main: send(resend)");
                 }
+                packetLog[i].last_sent = time(NULL);
                 usleep(100);
             }
         }
+
+        // TODO: Check sending queue and send packets if possible.
 
         debug_print("Serve loop done.\n");
     }
