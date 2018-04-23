@@ -51,7 +51,7 @@ unsigned short int outSeqNums[65535] = { 0 };
  */
 void epoll_add(struct epoll_control *epctrl, int fd)
 {
-    struct epoll_event ev = {0};
+    struct epoll_event ev = { 0 };
     ev.events = EPOLLIN;
     ev.data.fd = fd;
     if (epoll_ctl(epctrl->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1)
@@ -104,7 +104,7 @@ void epoll_event(struct epoll_control *epctrl, int n)
         // Received data from daemon
     else if (epctrl->events[n].data.fd == epctrl->daemon_fd)
     {
-        unsigned char buffer[1496];
+        unsigned char buffer[WINDOW_SIZE + 4];
         unsigned char from;
 
         if (recv(epctrl->events[n].data.fd, &from, 1, 0) == -1) {
@@ -182,9 +182,10 @@ void epoll_event(struct epoll_control *epctrl, int n)
 
         // Send ack
         // TODO: Send after a delay, to ack multiple packets at once.
-        unsigned char outBuffer[4];
-        buildHeader(0, port, (seqNum + 1), outBuffer);
-        if (send(epctrl->events[n].data.fd, outBuffer, 4, 0)) {
+        unsigned char outBuffer[5];
+        outBuffer[0] = from;
+        buildHeader(0, port, (seqNum + 1), &(outBuffer[1]));
+        if (send(epctrl->events[n].data.fd, outBuffer, 5, 0)) {
             perror("epoll_event: send(ack)");
             return;
         }
@@ -203,8 +204,67 @@ void epoll_event(struct epoll_control *epctrl, int n)
             }
             app = app->next;
         }
+        if (!app) {
+            return;
+        }
 
-        // TODO: Create packets and add them to queue.
+        unsigned char to;
+        if (recv(epctrl->events[n].data.fd, &to, 1, 0) == -1) {
+            perror("epoll_event: recv(from app to)");
+            return;
+        }
+
+        unsigned short int port;
+        if (recv(epctrl->events[n].data.fd, &port, 2, 0) == -1) {
+            perror("epoll_event: recv(from app port)");
+            return;
+        }
+
+        // While there is data to load.
+        while (1)
+        {
+            unsigned char buffer[MAX_PAYLOAD_SIZE];
+            struct miptp_record packet = { 0 };
+
+            int length = recv(epctrl->events[n].data.fd, buffer, MAX_PAYLOAD_SIZE, 0);
+            if (length == -1) {
+                perror("epoll_event: recv(from app)");
+            }
+
+            if (length == 0) {
+                break;
+            }
+
+            for (packet.length = length; packet.length % 4 != 0; packet.length++);
+
+            // Set values.
+            packet.exists = 1;
+            packet.addr = to;
+            packet.port = port;
+            outSeqNums[port]++;
+            packet.seqnum = outSeqNums[port];
+            packet.data = malloc(sizeof(packet.length + 5));
+            
+            // Set packet data.
+            packet.data[0] = to;
+            buildHeader((packet.length - length), port, outSeqNums[port], &(packet.data[1]));
+            memcpy(&(packet.data[5]), buffer, length);
+
+            // Add to account for MIPTP header and destination.
+            packet.length = packet.length + 5;
+
+            // Add to sending queue.
+            struct packet_linkedlist * ll = malloc(sizeof(struct packet_linkedlist));
+            ll->next = sendingQueue;
+            ll->data = packet;
+            sendingQueue = ll;
+
+            // If we received less than we can receive.
+            if (length != MAX_PAYLOAD_SIZE)
+            {
+                break;
+            }
+        }
     }
 }
 
@@ -300,8 +360,44 @@ int main(int argc, char *argv[])
             epoll_event(&epctrl, n);
         }
 
-        // Handle timeouts and resends.
+        // Add packets from queue to sending log if possible.
         int i;
+        for (i = 0; i < WINDOW_SIZE; i++) {
+            // If the spot is free.
+            if (!packetLog[i].exists)
+            {
+                // If no packet in queue.
+                if (!sendingQueue)
+                {
+                    break;
+                }
+
+                // Find packet from queue.
+                struct packet_linkedlist * toSend = sendingQueue, * newToSend = 0;
+                while (1)
+                {
+                    if (toSend->next == 0)
+                    {
+                        if (newToSend != 0)
+                        {
+                            newToSend->next = 0; // previous packet's ref if prev queue packet exists.
+                        } else {
+                            sendingQueue = 0; // Otherwise clear queue reference.
+                        }
+                        break;
+                    }
+                    newToSend = toSend;
+                    toSend = toSend->next;
+                }
+
+                // Store the data. Will be sent by resend script.
+                packetLog[i] = toSend->data;
+
+                free(toSend);
+            }
+        }
+
+        // Handle timeouts and resends. Will also send unsent packets in the packet log.
         for (i = 0; i < WINDOW_SIZE; i++)
         {
             if (packetLog[i].exists && packetLog[i].last_sent < (time(NULL) - timeout))
@@ -313,8 +409,6 @@ int main(int argc, char *argv[])
                 usleep(100);
             }
         }
-
-        // TODO: Check sending queue and send packets if possible.
 
         debug_print("Serve loop done.\n");
     }
