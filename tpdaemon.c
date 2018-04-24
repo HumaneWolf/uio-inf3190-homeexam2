@@ -67,6 +67,12 @@ void epoll_add(struct epoll_control *epctrl, int fd)
  * Input:
  *      epctrl - The epoll controller struct.
  *      n - The event counter, says which event to handle.
+ * Global vars:
+ *      packetLog - The log of packets which have been sent and not yet acked.
+ *      sendingQueue - The queue of packets to be send while hte window is full.
+ *      inSeqNums - The sequence numbers the system expects from incoming packets.
+ *      outSeqNums - The sequence numbers the system will use for outgoing packets.
+ *      applicationList - List of connected local applications.
  */
 void epoll_event(struct epoll_control *epctrl, int n)
 {
@@ -268,9 +274,11 @@ void epoll_event(struct epoll_control *epctrl, int n)
     }
 }
 
-
 /**
  * Main method.
+ * Global vars:
+ *      packetLog - The log of packets which have been sent and not yet acked.
+ *      sendingQueue - The queue of packets to be send while hte window is full.
  */
 int main(int argc, char *argv[])
 {
@@ -322,9 +330,15 @@ int main(int argc, char *argv[])
 
     sockaddr.sun_family = AF_UNIX;
     strcpy(sockaddr.sun_path, app_sock_path);
+    unlink(app_sock_path);
 
-    if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) == -1) {
-        perror("main: connect()");
+    if (bind(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr))) {
+        perror("main: bind()");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(sock, 100)) {
+        perror("main: listen()");
         exit(EXIT_FAILURE);
     }
 

@@ -34,7 +34,7 @@ struct miptp_record
     unsigned char addr;                     // The intended recipient or sender of the data.
     unsigned short int seqnum;              // The sequence number of the packet.
     unsigned int length;                    // Length of the packet data, in bytes.
-    unsigned char * data;                            // Pointer to the full packet data, ready to send OR to data to send to client.
+    unsigned char * data;                   // Pointer to the full packet data, ready to send OR to data to send to client.
     time_t last_sent;                       // The time the packet was sent.
 };
 
